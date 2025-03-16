@@ -40,20 +40,9 @@ def encrypt(pd, key):
 
 
 def login(username, password):
-    headers = {
-        'Connection': 'keep-alive',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,'
-                  'application/signed-exchange;v=b3;q=0.9',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
-                      'Chrome/95.0.4638.69 Safari/537.36',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Accept-Language': 'zh-CN,zh;q=0.9',
-        'Content-Type': 'application/x-www-form-urlencoded'
-    }
-
     # 访问登录界面，返回认证页面的内容，同时获得一个cookie：SESSION（禁止重定向）
     url = 'https://sso.fzu.edu.cn/login'
-    resp = requests.get(url, allow_redirects=False, headers=headers)
+    resp = requests.get(url, allow_redirects=False)
 
     # 从认证页面正则得到 croypto（** base64格式） 与 execution（post参数）的值
     croypto = re.search(r'"login-croypto">(.*?)<', resp.text, re.S).group(1)
@@ -86,8 +75,33 @@ def login(username, password):
     # 返回重定向后的url，这个url就是“宿舍报修”页面的url
     url = resp.headers['Location']
     resp = requests.get(url, allow_redirects=False)
-    # 访问该url不需要携带cookie，可能服务端通过ip或其他信息记录
-    # 访问后会有返回JSESSIONID和_WEU，两种cookie（办事大厅所用到的cookie），后续页面请求的js等需要这两种cookie
+    # 访问该url不需要携带cookie，通过url路径中的ticket作为凭证
+
+    # 访问后会有返回一个_WEU的cookie（办事大厅所用到的cookie），后续页面请求的js等需要这个cookie
+    cookies = {'_WEU': resp.cookies.get_dict()['_WEU']}
+
+    # 第一次更新cookie
+    url = 'http://ehall.fzu.edu.cn/ssfw/sys/emappagelog/config/swmssbxapp.do'
+    resp = requests.get(url, allow_redirects=False, cookies=cookies)
+
+    # 第二次更新cookie
+    url = 'http://ehall.fzu.edu.cn/ssfw/sys/xgutilapp/MobileCommon/getSelRoleConfig.do'
+    data = {'data': '{"APPID":"4970001248812463","APPNAME":"swmssbxapp"}'}
+    cookies['_WEU'] = resp.cookies.get_dict()['_WEU']
+    resp = requests.post(url, allow_redirects=False, cookies=cookies, data=data)
+
+    # 第三次更新cookie
+    url = 'http://ehall.fzu.edu.cn/ssfw/sys/xgutilapp/MobileCommon/getMenuInfo.do'
+    cookies['_WEU'] = resp.cookies.get_dict()['_WEU']
+    resp = requests.post(url, allow_redirects=False, cookies=cookies, data=data)
+
+    # 获取报修记录
+    url = 'http://ehall.fzu.edu.cn/ssfw/sys/swmssbxapp/MyRepairController/getUsrRepairRecords.do'
+    cookies['_WEU'] = resp.cookies.get_dict()['_WEU']
+    data = {'data': '{"querySetting":"[]"}'}
+    resp = requests.post(url, allow_redirects=False, cookies=cookies, data=data)
+
+    print(cookies)
     print(resp.text)
     print(resp.headers)
 
