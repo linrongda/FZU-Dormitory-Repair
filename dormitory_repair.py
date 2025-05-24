@@ -4,39 +4,46 @@ import binascii
 
 import re
 import requests
-from pyDes import des, PAD_PKCS5, ECB
+from Crypto.Cipher import AES
 
 
-def des_encrypt(s, key):
+def pkcs7_pad(data: bytes, block_size: int = 16) -> bytes:
     """
-    DES 加密
-    :param key: 秘钥
+    对数据进行 PKCS#7 填充
+    :param data: 待填充的原始字节串
+    :param block_size: 块大小，AES 固定为 16
+    :return: 填充后的字节串
+    """
+    padding_len = block_size - (len(data) % block_size)
+    return data + bytes([padding_len] * padding_len)
+
+
+def aes_encrypt_raw(s: str, key_bytes: bytes) -> bytes:
+    """
+    AES-ECB 加密（底层函数）
     :param s: 原始字符串
-    :return: 加密后字符串，16进制
+    :param key_bytes: 16/24/32 字节的 AES 密钥
+    :return: 加密后 bytes
     """
-    secret_key = key
-    k = des(secret_key, mode=ECB, pad=None, padmode=PAD_PKCS5)
-    en = k.encrypt(s, padmode=PAD_PKCS5)
-    return en  # 得到加密后的16位进制密码 <class 'bytes'>
+    cipher = AES.new(key_bytes, AES.MODE_ECB)
+    padded = pkcs7_pad(s.encode('utf-8'))
+    return cipher.encrypt(padded)
 
 
-def encrypt(pd, key):
+def encrypt(pd: str, key_b64: str) -> str:
     """
-    密码加密过程：
-    1 从认证页面中可获得base64格式的秘钥
-    2 将秘钥解码成bytes格式
-    3 输入明文密码
-    4 通过des加密明文密码
-    5 返回base64编码格式的加密后密码
+    密码加密过程（AES-ECB + PKCS#7 + Base64）：
+    1. 从认证页面获取 base64 格式的密钥
+    2. 将密钥解码成 bytes 格式
+    3. 对明文密码进行 AES-ECB 加密（PKCS#7 填充）
+    4. 将加密结果 Base64 编码后返回
     :param pd: 明文密码
-    :param key: 秘钥
-    :return: 加密后的密码（base64格式）
+    :param key_b64: Base64 编码的密钥字符串
+    :return: 加密后的密码（Base64 格式字符串）
     """
-    key = binascii.a2b_base64(key.encode('utf-8'))  # 先解码 <class 'bytes'>
-    pd_bytes = des_encrypt(pd, key)  # 得到加密后的16位进制密码 <class 'bytes'>
-    pd_base64 = binascii.b2a_base64(pd_bytes, newline=False).decode('utf-8')
-    # print(pd_base64)
-    return pd_base64
+    key_bytes = binascii.a2b_base64(key_b64.encode('utf-8'))  # 解码 Base64 得到密钥 bytes
+    encrypted_bytes = aes_encrypt_raw(pd, key_bytes)  # 得到加密后的 bytes
+    return binascii.b2a_base64(encrypted_bytes, newline=False).decode('utf-8')
 
 
 def login(username, password):
@@ -58,7 +65,8 @@ def login(username, password):
         'execution': execution,
         'captcha_code': '',
         'croypto': croypto,  # ** base64格式
-        'password': encrypt(password, croypto)  # 密码 经过des加密 base64格式
+        'password': encrypt(password, croypto),  # 密码 经过aes加密 base64格式
+        'captcha_payload': encrypt('{}', croypto)  # 验证码 经过aes加密 base64格式
     }
 
     # 提交数据，进行登录，注意携带cookie（禁重定向）
